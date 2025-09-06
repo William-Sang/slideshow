@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>轮播图 - 可嵌入飞书文档</title>
+  <style>
+    :root {
+      --img-height: 420px;
+      --gap: 12px;
+      --btn-size: 40px;
+      --btn-bg: rgba(0, 0, 0, 0.5);
+      --btn-color: #fff;
+      --btn-bg-hover: rgba(0, 0, 0, 0.7);
+      --track-transition: 260ms ease;
+      --radius: 10px;
+      --shadow: 0 6px 24px rgba(0,0,0,0.12);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      color: #222;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    .carousel-root {
+      width: 100%;
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .size-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      color: #444;
+    }
+
+    .size-control input[type="range"] {
+      width: 200px;
+    }
+
+    .carousel {
+      position: relative;
+      width: 100%;
+      overflow: hidden;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      background: #fafafa;
+    }
+
+    .viewport {
+      width: 100%;
+      height: var(--img-height);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .track {
+      display: flex;
+      gap: 0; /* slides are full width, no gap here */
+      height: 100%;
+      will-change: transform;
+      transition: transform var(--track-transition);
+    }
+
+    .slide {
+      position: relative;
+      min-width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f0f0f0;
+    }
+
+    .slide img {
+      max-height: 100%;
+      width: auto;
+      max-width: 100%;
+      object-fit: contain;
+      display: block;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    .nav-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: var(--btn-size);
+      height: var(--btn-size);
+      border-radius: 999px;
+      border: none;
+      background: var(--btn-bg);
+      color: var(--btn-color);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 2;
+      transition: background 160ms ease, transform 160ms ease;
+    }
+
+    .nav-btn:hover { background: var(--btn-bg-hover); }
+    .nav-btn:active { transform: translateY(-50%) scale(0.96); }
+    .nav-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+    .nav-prev { left: 10px; }
+    .nav-next { right: 10px; }
+
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 6px 0 0;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #d0d0d0;
+      transition: transform 160ms ease, background 160ms ease;
+    }
+
+    .dot.active {
+      background: #4c8bf5;
+      transform: scale(1.25);
+    }
+
+    .empty {
+      padding: 20px;
+      text-align: center;
+      color: #777;
+      font-size: 14px;
+    }
+
+    /* Minimal focus styles */
+    .nav-btn:focus-visible, input:focus-visible {
+      outline: 2px solid #4c8bf5;
+      outline-offset: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="carousel-root" role="region" aria-label="图片轮播">
+    
+
+    <div class="carousel" aria-live="polite">
+      <button id="prevBtn" class="nav-btn nav-prev" aria-label="上一张" title="上一张">&#x2039;</button>
+
+      <div class="viewport">
+        <div id="track" class="track" aria-atomic="true"></div>
+      </div>
+
+      <button id="nextBtn" class="nav-btn nav-next" aria-label="下一张" title="下一张">&#x203A;</button>
+    </div>
+
+    <div id="pagination" class="pagination" aria-hidden="true"></div>
+    <div id="emptyState" class="empty" style="display:none;">暂无图片，请通过 URL 参数或在代码中配置。</div>
+  </div>
+
+  <script>
+    (function() {
+      const track = document.getElementById('track');
+      const pagination = document.getElementById('pagination');
+      const emptyState = document.getElementById('emptyState');
+      const prevBtn = document.getElementById('prevBtn');
+      const nextBtn = document.getElementById('nextBtn');
+
+      const defaultConfig = {
+        imgs: [],            // 支持相对路径（同目录）或完整 URL
+        height: 420,         // 图片高度 px
+        start: 0,            // 起始索引
+        loop: false,         // 是否循环
+        autoplay: 0,         // 毫秒；0 表示关闭
+        dots: true,          // 是否显示底部分页圆点
+        buttons: true        // 是否显示左右按钮
+      };
+
+      function parseBool(v) {
+        if (v == null) return undefined;
+        const s = String(v).toLowerCase();
+        return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+      }
+
+      async function loadConfig() {
+        const params = new URLSearchParams(window.location.search);
+        const cfgUrl = params.get('config');
+        let cfg = {};
+        if (cfgUrl) {
+          try {
+            const res = await fetch(cfgUrl);
+            if (res.ok) cfg = await res.json();
+          } catch (e) {
+            console.warn('加载配置失败:', e);
+          }
+        } else {
+          const embedded = document.getElementById('carousel-config');
+          if (embedded) {
+            try { cfg = JSON.parse(embedded.textContent || '{}'); } catch (e) {}
+          }
+        }
+
+        // URL 参数覆盖配置
+        const imgsParam = params.get('imgs');
+        if (imgsParam) {
+          cfg.imgs = imgsParam
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean)
+            .map(s => decodeURIComponent(s));
+        }
+        const height = params.get('height');
+        if (height) cfg.height = Number(height);
+        const start = params.get('start');
+        if (start) cfg.start = Number(start);
+        const loop = parseBool(params.get('loop'));
+        if (loop !== undefined) cfg.loop = loop;
+        const autoplay = params.get('autoplay');
+        if (autoplay) cfg.autoplay = Number(autoplay);
+        const dots = parseBool(params.get('dots'));
+        if (dots !== undefined) cfg.dots = dots;
+        const buttons = parseBool(params.get('buttons'));
+        if (buttons !== undefined) cfg.buttons = buttons;
+
+        return Object.assign({}, defaultConfig, cfg);
+      }
+
+      function getBaseHref() {
+        const href = window.location.href;
+        return href.slice(0, href.lastIndexOf('/') + 1);
+      }
+
+      function resolveUrls(urls) {
+        const base = getBaseHref();
+        return urls.map(u => {
+          const s = String(u);
+          if (/^(https?:)?\/\//i.test(s) || s.startsWith('data:') || s.startsWith('/')) return s;
+          return base + s; // 同目录相对路径
+        });
+      }
+
+      let currentIndex = 0;
+      let imageUrls = [];
+      let cfg = defaultConfig;
+      let autoplayTimer = null;
+
+      function renderSlides(urls) {
+        track.innerHTML = '';
+        urls.forEach((url, i) => {
+          const slide = document.createElement('div');
+          slide.className = 'slide';
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = '第 ' + (i + 1) + ' 张图片';
+          slide.appendChild(img);
+          track.appendChild(slide);
+        });
+      }
+
+      function renderDots(len) {
+        if (!cfg.dots) {
+          pagination.style.display = 'none';
+          return;
+        }
+        pagination.style.display = '';
+        pagination.innerHTML = '';
+        for (let i = 0; i < len; i++) {
+          const dot = document.createElement('div');
+          dot.className = 'dot' + (i === currentIndex ? ' active' : '');
+          pagination.appendChild(dot);
+        }
+      }
+
+      function update() {
+        const offset = -currentIndex * 100;
+        track.style.transform = 'translateX(' + offset + '%)';
+        if (cfg.buttons) {
+          prevBtn.style.display = '';
+          nextBtn.style.display = '';
+          prevBtn.disabled = !cfg.loop && currentIndex === 0;
+          nextBtn.disabled = !cfg.loop && currentIndex === imageUrls.length - 1;
+        } else {
+          prevBtn.style.display = 'none';
+          nextBtn.style.display = 'none';
+        }
+        renderDots(imageUrls.length);
+      }
+
+      function goPrev() {
+        if (currentIndex > 0) {
+          currentIndex -= 1;
+        } else if (cfg.loop) {
+          currentIndex = imageUrls.length - 1;
+        }
+        update();
+        resetAutoplay();
+      }
+
+      function goNext() {
+        if (currentIndex < imageUrls.length - 1) {
+          currentIndex += 1;
+        } else if (cfg.loop) {
+          currentIndex = 0;
+        }
+        update();
+        resetAutoplay();
+      }
+
+      prevBtn.addEventListener('click', goPrev);
+      nextBtn.addEventListener('click', goNext);
+
+      // 键盘左右键也可翻页
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') goPrev();
+        if (e.key === 'ArrowRight') goNext();
+      });
+
+      function clearAutoplay() {
+        if (autoplayTimer) {
+          clearInterval(autoplayTimer);
+          autoplayTimer = null;
+        }
+      }
+
+      function startAutoplay() {
+        clearAutoplay();
+        if (cfg.autoplay > 0 && imageUrls.length > 1) {
+          autoplayTimer = setInterval(() => {
+            if (document.hidden) return; // 页面不可见时暂停
+            goNext();
+          }, cfg.autoplay);
+        }
+      }
+
+      function resetAutoplay() {
+        if (cfg.autoplay > 0) startAutoplay();
+      }
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          clearAutoplay();
+        } else {
+          startAutoplay();
+        }
+      });
+
+      (async function init() {
+        cfg = await loadConfig();
+        if (!cfg.imgs || cfg.imgs.length === 0) {
+          // 未提供配置时保留示例，便于预览
+          imageUrls = [
+            'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1600&auto=format&fit=crop',
+            'https://images.unsplash.com/photo-1520975916090-3105956dac38?q=80&w=1600&auto=format&fit=crop',
+            'https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?q=80&w=1600&auto=format&fit=crop'
+          ];
+        } else {
+          imageUrls = resolveUrls(cfg.imgs);
+        }
+
+        document.documentElement.style.setProperty('--img-height', (cfg.height || 420) + 'px');
+        currentIndex = Math.max(0, Math.min(Number(cfg.start) || 0, Math.max(0, imageUrls.length - 1)));
+
+        if (!imageUrls.length) {
+          emptyState.style.display = 'block';
+          return;
+        }
+        emptyState.style.display = 'none';
+        renderSlides(imageUrls);
+        renderDots(imageUrls.length);
+        update();
+        startAutoplay();
+      })();
+    })();
+  </script>
+</body>
+</html>
+
+
